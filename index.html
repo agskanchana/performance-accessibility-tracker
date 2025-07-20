@@ -139,6 +139,7 @@
             </div>
 
             <button type="button" class="btn" onclick="installDependencies()">ℹ️ About Browser Version</button>
+            <button type="button" class="btn" onclick="testSingleUrl()" style="background-color: #007bff;">🧪 Test Single URL</button>
             <button type="submit" class="btn">🔍 Analyze Sitemap</button>
         </form>
 
@@ -164,10 +165,17 @@
             outputDiv.style.display = 'block';
         }
 
-        function updateProgress() {
+        function updateProgress(currentUrl = '', currentStrategy = '') {
             if (totalUrls > 0) {
                 const percentage = Math.round((processedUrls / totalUrls) * 100);
-                showStatus(`Processing... ${processedUrls}/${totalUrls} URLs analyzed (${percentage}%)`, 'info');
+                const pageNumber = Math.ceil(processedUrls / 2); // Since we analyze both mobile and desktop
+                const totalPages = Math.ceil(totalUrls / 2);
+
+                if (currentUrl && currentStrategy) {
+                    showStatus(`Analyzing page ${pageNumber} of ${totalPages}: ${currentUrl} (${currentStrategy}) - ${percentage}% complete`, 'info');
+                } else {
+                    showStatus(`Processing... ${processedUrls}/${totalUrls} URLs analyzed (${percentage}%)`, 'info');
+                }
             }
         }
 
@@ -205,32 +213,85 @@
         // Get PageSpeed Insights data for a single URL
         async function getPageSpeedData(url, strategy, apiKey) {
             try {
-                const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}&key=${apiKey}`;
+                // Add category parameter to ensure we get all lighthouse categories
+                const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}&category=performance&category=accessibility&category=best-practices&category=seo&key=${apiKey}`;
 
                 const response = await fetch(apiUrl);
                 const data = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(data.error?.message || 'API request failed');
+                    console.error('API Error Response:', data);
+                    throw new Error(data.error?.message || `API request failed with status ${response.status}`);
                 }
 
                 const lighthouseResult = data.lighthouseResult;
 
                 if (!lighthouseResult || !lighthouseResult.categories) {
-                    throw new Error('Invalid PageSpeed Insights response');
+                    console.error('Invalid API Response:', data);
+                    throw new Error('Invalid PageSpeed Insights response - missing lighthouse data');
                 }
 
-                return {
+                // Debug log the categories
+                console.log(`Categories for ${url} (${strategy}):`, lighthouseResult.categories);
+
+                // Extract scores more safely with detailed logging
+                const categories = lighthouseResult.categories;
+
+                const performanceScore = categories.performance && categories.performance.score !== null && categories.performance.score !== undefined
+                    ? Math.round(categories.performance.score * 100) : 0;
+
+                const accessibilityScore = categories.accessibility && categories.accessibility.score !== null && categories.accessibility.score !== undefined
+                    ? Math.round(categories.accessibility.score * 100) : 0;
+
+                const bestPracticesScore = categories['best-practices'] && categories['best-practices'].score !== null && categories['best-practices'].score !== undefined
+                    ? Math.round(categories['best-practices'].score * 100) : 0;
+
+                const seoScore = categories.seo && categories.seo.score !== null && categories.seo.score !== undefined
+                    ? Math.round(categories.seo.score * 100) : 0;
+
+                // Create the correct PageSpeed Insights URL format
+                // The correct format is: https://pagespeed.web.dev/analysis/[URL]/[ID]?form_factor=[mobile|desktop]
+                // But we need to check what the actual ID format is from the API
+                console.log(`API Response ID: "${data.id}"`);
+                console.log(`Full API Response keys:`, Object.keys(data));
+
+                // Try different URL formats to see which one works
+                const encodedUrl = encodeURIComponent(url);
+                const apiId = data.id;
+
+                // Format 1: Standard format
+                const analysisUrl1 = `https://pagespeed.web.dev/analysis/${encodedUrl}/${apiId}?form_factor=${strategy}`;
+
+                // Format 2: Without the ID (sometimes this works)
+                const analysisUrl2 = `https://pagespeed.web.dev/analysis?url=${encodedUrl}&form_factor=${strategy}`;
+
+                // Format 3: Using the lighthouse requestedUrl if available
+                const requestedUrl = data.lighthouseResult?.requestedUrl || url;
+                const analysisUrl3 = `https://pagespeed.web.dev/analysis/${encodeURIComponent(requestedUrl)}?form_factor=${strategy}`;
+
+                // Use format 2 as it's more reliable
+                const analysisUrl = analysisUrl2;
+
+                const result = {
                     url: url,
                     strategy: strategy,
-                    performanceScore: Math.round((lighthouseResult.categories.performance?.score || 0) * 100),
-                    accessibilityScore: Math.round((lighthouseResult.categories.accessibility?.score || 0) * 100),
-                    bestPracticesScore: Math.round((lighthouseResult.categories['best-practices']?.score || 0) * 100),
-                    seoScore: Math.round((lighthouseResult.categories.seo?.score || 0) * 100),
-                    analysisUrl: `https://pagespeed.web.dev/analysis/${encodeURIComponent(url)}/${data.id}?form_factor=${strategy}`
+                    performanceScore: performanceScore,
+                    accessibilityScore: accessibilityScore,
+                    bestPracticesScore: bestPracticesScore,
+                    seoScore: seoScore,
+                    analysisUrl: analysisUrl
                 };
+
+                console.log(`Trying URL formats:`);
+                console.log(`Format 1: ${analysisUrl1}`);
+                console.log(`Format 2: ${analysisUrl2}`);
+                console.log(`Format 3: ${analysisUrl3}`);
+                console.log(`Using: ${analysisUrl}`);
+                console.log(`Result for ${url} (${strategy}):`, result);
+                return result;
+
             } catch (error) {
-                console.error(`Error analyzing ${url}:`, error);
+                console.error(`Error analyzing ${url} (${strategy}):`, error);
                 return {
                     url: url,
                     strategy: strategy,
@@ -329,7 +390,51 @@
 
         async function installDependencies() {
             showStatus('No dependencies needed! This version runs entirely in the browser.', 'success');
-            showOutput('Browser-based version:\n✅ No Node.js installation required\n✅ No terminal commands needed\n✅ Runs directly in your browser\n✅ Downloads CSV automatically\n✅ API key stored securely in config.js\n\nJust enter your sitemap URL and click "Analyze Sitemap"!');
+            showOutput('Browser-based version:\n✅ No Node.js installation required\n✅ No terminal commands needed\n✅ Runs directly in your browser\n✅ Downloads CSV automatically\n✅ API key stored securely in config.js\n✅ Enhanced progress tracking\n✅ Fixed accessibility score detection\n✅ Corrected PageSpeed Analysis URLs\n\nJust enter your sitemap URL and click "Analyze Sitemap"!');
+        }
+
+        // Test function to debug API response
+        async function testSingleUrl() {
+            const apiKey = CONFIG?.PAGESPEED_API_KEY;
+            if (!apiKey) {
+                console.error('No API key found');
+                showStatus('No API key found in config.js', 'error');
+                return;
+            }
+
+            showStatus('Testing single URL...', 'info');
+
+            try {
+                // Make direct API call to see raw response
+                const testUrl = 'https://www.dentalcrafters.ca/';
+                const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(testUrl)}&strategy=mobile&key=${apiKey}`;
+
+                console.log('API URL:', apiUrl);
+
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+
+                console.log('Full API Response:', data);
+                console.log('Lighthouse Result:', data.lighthouseResult);
+                console.log('Categories:', data.lighthouseResult?.categories);
+
+                if (data.lighthouseResult?.categories) {
+                    console.log('Performance:', data.lighthouseResult.categories.performance);
+                    console.log('Accessibility:', data.lighthouseResult.categories.accessibility);
+                    console.log('Best Practices:', data.lighthouseResult.categories['best-practices']);
+                    console.log('SEO:', data.lighthouseResult.categories.seo);
+                }
+
+                // Now test our function
+                const testResult = await getPageSpeedData(testUrl, 'mobile', apiKey);
+                console.log('Our function result:', testResult);
+
+                showOutput(`Raw API Response Categories:\n${JSON.stringify(data.lighthouseResult?.categories, null, 2)}\n\nOur Function Result:\n${JSON.stringify(testResult, null, 2)}`);
+
+            } catch (error) {
+                console.error('Test failed:', error);
+                showStatus(`Test failed: ${error.message}`, 'error');
+            }
         }
 
         document.getElementById('analyzerForm').addEventListener('submit', async function(e) {
@@ -362,11 +467,16 @@
                 for (const url of urls) {
                     for (const strategy of strategies) {
                         try {
-                            showStatus(`Analyzing ${url} (${strategy})...`, 'info');
+                            const pageNumber = Math.ceil((processedUrls + 1) / 2);
+                            const totalPages = Math.ceil(totalUrls / 2);
+
+                            updateProgress(url, strategy);
                             const result = await getPageSpeedData(url, strategy, apiKey);
                             analysisResults.push(result);
                             processedUrls++;
-                            updateProgress();
+
+                            // Log the result for debugging
+                            console.log('Analysis result:', result);
 
                             // Add 1 second delay to avoid rate limiting
                             await sleep(1000);
