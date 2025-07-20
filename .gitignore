@@ -1,0 +1,22 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Configuration files with sensitive data
+config.js
+
+# Logs
+*.log
+
+# CSV reports (optional - uncomment if you don't want to track reports)
+# *.csv
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PageSpeed Sitemap Analyzer</title>
+    <script src="config.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="url"], input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="url"]:focus, input[type="text"]:focus, input[type="password"]:focus {
+            border-color: #4CAF50;
+            outline: none;
+        }
+        .btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .status.info {
+            background-color: #cce7ff;
+            border: 1px solid #99d6ff;
+            color: #004085;
+        }
+        .command-output {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .example {
+            font-style: italic;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 PageSpeed Sitemap Analyzer</h1>
+
+        <div class="instructions">
+            <h3>📋 How to Use (Browser Version)</h3>
+            <ol>
+                <li><strong>API key is configured automatically!</strong> (No need to enter it manually)</li>
+                <li><strong>Enter the sitemap URL</strong> you want to analyze</li>
+                <li><strong>Click "Analyze Sitemap"</strong> - everything runs in your browser!</li>
+                <li><strong>Wait for analysis</strong> - it will show progress for each URL</li>
+                <li><strong>Download CSV</strong> - the report will automatically download when complete</li>
+            </ol>
+            <div style="background-color: #d4edda; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                <strong>✅ No installation required!</strong> API key is stored securely in config.js
+            </div>
+        </div>
+
+        <form id="analyzerForm">
+            <div class="form-group">
+                <label for="sitemapUrl">Sitemap URL:</label>
+                <input type="url" id="sitemapUrl" value="https://www.dentalcrafters.ca/page-sitemap.xml" placeholder="https://example.com/sitemap.xml" required>
+                <div class="example">Example: https://www.dentalcrafters.ca/page-sitemap.xml</div>
+            </div>
+
+            <button type="button" class="btn" onclick="installDependencies()">ℹ️ About Browser Version</button>
+            <button type="submit" class="btn">🔍 Analyze Sitemap</button>
+        </form>
+
+        <div id="status" class="status"></div>
+        <div id="output" class="command-output" style="display: none;"></div>
+    </div>
+
+    <script>
+        let analysisResults = [];
+        let totalUrls = 0;
+        let processedUrls = 0;
+
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function showOutput(output) {
+            const outputDiv = document.getElementById('output');
+            outputDiv.textContent = output;
+            outputDiv.style.display = 'block';
+        }
+
+        function updateProgress() {
+            if (totalUrls > 0) {
+                const percentage = Math.round((processedUrls / totalUrls) * 100);
+                showStatus(`Processing... ${processedUrls}/${totalUrls} URLs analyzed (${percentage}%)`, 'info');
+            }
+        }
+
+        // Fetch and parse sitemap XML
+        async function fetchSitemap(sitemapUrl) {
+            try {
+                showStatus('Fetching sitemap...', 'info');
+
+                // Use a CORS proxy to fetch the sitemap
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(sitemapUrl)}`;
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+
+                if (!data.contents) {
+                    throw new Error('Failed to fetch sitemap content');
+                }
+
+                // Parse XML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(data.contents, 'text/xml');
+
+                // Extract URLs
+                const urlElements = xmlDoc.querySelectorAll('url > loc');
+                const urls = Array.from(urlElements).map(el => el.textContent.trim());
+
+                showOutput(`Found ${urls.length} URLs in sitemap:\n${urls.slice(0, 10).join('\n')}${urls.length > 10 ? '\n... and ' + (urls.length - 10) + ' more' : ''}`);
+
+                return urls;
+            } catch (error) {
+                console.error('Error fetching sitemap:', error);
+                throw new Error(`Failed to fetch sitemap: ${error.message}`);
+            }
+        }
+
+        // Get PageSpeed Insights data for a single URL
+        async function getPageSpeedData(url, strategy, apiKey) {
+            try {
+                const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}&key=${apiKey}`;
+
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error?.message || 'API request failed');
+                }
+
+                const lighthouseResult = data.lighthouseResult;
+
+                if (!lighthouseResult || !lighthouseResult.categories) {
+                    throw new Error('Invalid PageSpeed Insights response');
+                }
+
+                return {
+                    url: url,
+                    strategy: strategy,
+                    performanceScore: Math.round((lighthouseResult.categories.performance?.score || 0) * 100),
+                    accessibilityScore: Math.round((lighthouseResult.categories.accessibility?.score || 0) * 100),
+                    bestPracticesScore: Math.round((lighthouseResult.categories['best-practices']?.score || 0) * 100),
+                    seoScore: Math.round((lighthouseResult.categories.seo?.score || 0) * 100),
+                    analysisUrl: `https://pagespeed.web.dev/analysis/${encodeURIComponent(url)}/${data.id}?form_factor=${strategy}`
+                };
+            } catch (error) {
+                console.error(`Error analyzing ${url}:`, error);
+                return {
+                    url: url,
+                    strategy: strategy,
+                    performanceScore: 'Error',
+                    accessibilityScore: 'Error',
+                    bestPracticesScore: 'Error',
+                    seoScore: 'Error',
+                    analysisUrl: 'Error',
+                    error: error.message
+                };
+            }
+        }
+
+        // Sleep function to add delay between API calls
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // Download CSV file
+        function downloadCSV(data, filename) {
+            const headers = ['URL', 'Device', 'Performance Score', 'Accessibility Score', 'Best Practices Score', 'SEO Score', 'PageSpeed Analysis URL', 'Error'];
+
+            let csvContent = headers.join(',') + '\n';
+
+            data.forEach(row => {
+                const csvRow = [
+                    `"${row.url}"`,
+                    `"${row.strategy}"`,
+                    `"${row.performanceScore}"`,
+                    `"${row.accessibilityScore}"`,
+                    `"${row.bestPracticesScore}"`,
+                    `"${row.seoScore}"`,
+                    `"${row.analysisUrl}"`,
+                    `"${row.error || ''}"`
+                ].join(',');
+                csvContent += csvRow + '\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Display results in a table
+        function displayResults(results) {
+            const successfulResults = results.filter(r => r.performanceScore !== 'Error');
+            const errorResults = results.filter(r => r.performanceScore === 'Error');
+
+            let output = '=== ANALYSIS COMPLETE ===\n\n';
+            output += `Total URLs analyzed: ${results.length}\n`;
+            output += `Successful analyses: ${successfulResults.length}\n`;
+            output += `Failed analyses: ${errorResults.length}\n\n`;
+
+            if (successfulResults.length > 0) {
+                const avgPerformance = Math.round(
+                    successfulResults.reduce((sum, r) => sum + parseInt(r.performanceScore), 0) / successfulResults.length
+                );
+                const avgAccessibility = Math.round(
+                    successfulResults.reduce((sum, r) => sum + parseInt(r.accessibilityScore), 0) / successfulResults.length
+                );
+
+                output += `Average Performance Score: ${avgPerformance}\n`;
+                output += `Average Accessibility Score: ${avgAccessibility}\n\n`;
+            }
+
+            output += 'SAMPLE RESULTS:\n';
+            output += '================================================\n';
+
+            results.slice(0, 5).forEach(result => {
+                output += `URL: ${result.url}\n`;
+                output += `Device: ${result.strategy}\n`;
+                output += `Performance: ${result.performanceScore}\n`;
+                output += `Accessibility: ${result.accessibilityScore}\n`;
+                output += `Best Practices: ${result.bestPracticesScore}\n`;
+                output += `SEO: ${result.seoScore}\n`;
+                if (result.error) {
+                    output += `Error: ${result.error}\n`;
+                }
+                output += '---\n';
+            });
+
+            if (results.length > 5) {
+                output += `... and ${results.length - 5} more results\n`;
+            }
+
+            showOutput(output);
+        }
+
+        async function installDependencies() {
+            showStatus('No dependencies needed! This version runs entirely in the browser.', 'success');
+            showOutput('Browser-based version:\n✅ No Node.js installation required\n✅ No terminal commands needed\n✅ Runs directly in your browser\n✅ Downloads CSV automatically\n✅ API key stored securely in config.js\n\nJust enter your sitemap URL and click "Analyze Sitemap"!');
+        }
+
+        document.getElementById('analyzerForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            // Get API key from config file
+            const apiKey = CONFIG?.PAGESPEED_API_KEY;
+            const sitemapUrl = document.getElementById('sitemapUrl').value;
+
+            if (!apiKey) {
+                showStatus('API key not found in config.js file', 'error');
+                return;
+            }
+
+            try {
+                // Reset counters
+                analysisResults = [];
+                processedUrls = 0;
+                totalUrls = 0;
+
+                // Fetch sitemap URLs
+                const urls = await fetchSitemap(sitemapUrl);
+                totalUrls = urls.length * 2; // Both mobile and desktop
+
+                showStatus('Starting PageSpeed analysis...', 'info');
+
+                // Analyze each URL for both mobile and desktop
+                const strategies = ['mobile', 'desktop'];
+
+                for (const url of urls) {
+                    for (const strategy of strategies) {
+                        try {
+                            showStatus(`Analyzing ${url} (${strategy})...`, 'info');
+                            const result = await getPageSpeedData(url, strategy, apiKey);
+                            analysisResults.push(result);
+                            processedUrls++;
+                            updateProgress();
+
+                            // Add 1 second delay to avoid rate limiting
+                            await sleep(1000);
+                        } catch (error) {
+                            console.error('Error in analysis:', error);
+                            processedUrls++;
+                            updateProgress();
+                        }
+                    }
+                }
+
+                // Display results
+                displayResults(analysisResults);
+
+                // Download CSV
+                const timestamp = new Date().toISOString().split('T')[0];
+                const filename = `pagespeed-report-${timestamp}.csv`;
+                downloadCSV(analysisResults, filename);
+
+                showStatus(`Analysis complete! CSV file "${filename}" has been downloaded.`, 'success');
+
+            } catch (error) {
+                console.error('Analysis failed:', error);
+                showStatus(`Analysis failed: ${error.message}`, 'error');
+            }
+        });
+    </script>
+    </script>
+</body>
+</html>
