@@ -183,22 +183,83 @@
             try {
                 showStatus('Fetching sitemap...', 'info');
 
-                // Use a CORS proxy to fetch the sitemap
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(sitemapUrl)}`;
-                const response = await fetch(proxyUrl);
-                const data = await response.json();
+                // Try multiple CORS proxies in order of preference
+                const corsProxies = [
+                    `https://corsproxy.io/?${encodeURIComponent(sitemapUrl)}`,
+                    `https://api.allorigins.win/get?url=${encodeURIComponent(sitemapUrl)}`,
+                    `https://cors-anywhere.herokuapp.com/${sitemapUrl}`,
+                    `https://thingproxy.freeboard.io/fetch/${sitemapUrl}`
+                ];
 
-                if (!data.contents) {
-                    throw new Error('Failed to fetch sitemap content');
+                let data = null;
+                let lastError = null;
+
+                // Try each proxy until one works
+                for (let i = 0; i < corsProxies.length; i++) {
+                    const proxyUrl = corsProxies[i];
+                    console.log(`Trying proxy ${i + 1}/${corsProxies.length}: ${proxyUrl}`);
+
+                    try {
+                        const response = await fetch(proxyUrl);
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+
+                        // Different proxies return data differently
+                        if (proxyUrl.includes('allorigins.win')) {
+                            const jsonData = await response.json();
+                            if (jsonData.contents) {
+                                data = jsonData.contents;
+                                console.log(`✅ Successfully fetched sitemap using proxy ${i + 1}`);
+                                break;
+                            }
+                        } else {
+                            // For other proxies, the response is directly the sitemap XML
+                            data = await response.text();
+                            console.log(`✅ Successfully fetched sitemap using proxy ${i + 1}`);
+                            break;
+                        }
+                    } catch (error) {
+                        console.log(`❌ Proxy ${i + 1} failed:`, error.message);
+                        lastError = error;
+                        continue;
+                    }
+                }
+
+                if (!data) {
+                    throw new Error(`All CORS proxies failed. Last error: ${lastError?.message || 'Unknown error'}`);
                 }
 
                 // Parse XML
                 const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(data.contents, 'text/xml');
+                const xmlDoc = parser.parseFromString(data, 'text/xml');
+
+                // Check for XML parsing errors
+                const parseError = xmlDoc.querySelector('parsererror');
+                if (parseError) {
+                    throw new Error('Invalid XML format in sitemap');
+                }
 
                 // Extract URLs
                 const urlElements = xmlDoc.querySelectorAll('url > loc');
                 const urls = Array.from(urlElements).map(el => el.textContent.trim());
+
+                if (urls.length === 0) {
+                    // Try different selectors for different sitemap formats
+                    const alternateSelectors = ['loc', 'sitemap > loc', 'urlset > url > loc'];
+                    for (const selector of alternateSelectors) {
+                        const elements = xmlDoc.querySelectorAll(selector);
+                        if (elements.length > 0) {
+                            urls.push(...Array.from(elements).map(el => el.textContent.trim()));
+                            break;
+                        }
+                    }
+                }
+
+                if (urls.length === 0) {
+                    throw new Error('No URLs found in sitemap. Please check the sitemap format.');
+                }
 
                 showOutput(`Found ${urls.length} URLs in sitemap:\n${urls.slice(0, 10).join('\n')}${urls.length > 10 ? '\n... and ' + (urls.length - 10) + ' more' : ''}`);
 
